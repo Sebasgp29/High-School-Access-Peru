@@ -6,3 +6,4 @@ pandas
 scipy
 ipykernel
 nbformat
+geopandas
