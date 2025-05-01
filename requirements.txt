@@ -7,3 +7,4 @@ scipy
 ipykernel
 nbformat
 geopandas
+openpyxl
