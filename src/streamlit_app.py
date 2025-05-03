@@ -1,71 +1,109 @@
+# --- Librerías necesarias ---
+import pandas as pd
+import geopandas as gpd
+import matplotlib.pyplot as plt
+import geopandas as gpd
+from geopandas import GeoSeries
+from shapely.geometry import Point, LineString
+import os
 import streamlit as st
-from estimation import execute_regressions, generate_data
-from plots import *
+import folium
+from folium import Choropleth, LayerControl
+from streamlit_folium import folium_static
 
-data = generate_data()
-results, results_data = execute_regressions(data)
+# Cargar los datos
 
-st.set_page_config(page_title="Simpson's Paradox", layout="wide")
+# Cargar el Excel descargado
+df = pd.read_excel(".../data/listado_iiee.xlsx")
 
-tab1, tab2, tab3 = st.tabs(["Simpson's Paradox", "Code", "References"])
+# Cargar shapefile de distritos
+gdf_distritos = gpd.read_file(".../data\shape_file\DISTRITOS.shp")
+
+# Configurar página de Streamlit
+st.set_page_config(page_title="Análisis Geoespacial de Colegios en Perú", layout="wide")
+
+# Tabs
+tab1, tab2, tab3 = st.tabs(["🗂️ Descripción de Datos", "🗺️ Mapas Estáticos", "🌍 Mapas Dinámicos"])
+
+# Tab 1: Descripción de datos
+
 
 with tab1:
+    st.header("🗂️ Descripción de Datos")
 
-        st.markdown(
-"""
-# Simpson's Paradox Explained
+    st.subheader("Unidad de Análisis")
+    st.write("""
+    La unidad de análisis de este proyecto es cada escuela en el Perú.
+    Cada colegio está tiene un código único que ayuda a identificarlo, además contiene información sobre sus coordenadas (latitud y longitud) y su nivel educativo (Inicial, Primaria o Secundaria).
+    El análisis espacial agrupa a los colegios a nivel distrital para observar patrones de acceso educativo en el ámbito distrital.
+    """)
 
-Simpson's paradox posits that, when we calculate correlations in aggregated data for a given population, we may fin a positive (negative) correlation, but when the data are disaggregated, the correlation may have the opposite sign.
+    st.subheader("Fuentes de Datos")
+    st.write("""
+    - **Base de datos de escuelas**: Ministerio de Educación del Perú (MINEDU), obtenido del portal SIGMED (https://sigmed.minedu.gob.pe/mapaeducativo/).
+    - **Shapefile de límites distritales**: Fuente oficial del Instituto Nacional de Estadística e Informática (INEI).
+    """)
 
-In this case, we simulate data such that we have a confounding variable, namely age. If age has an effect both exercise and cholesterol, not taking it into account when performing our estimation will will render us a biased estimator of the correlation between cholesterol and exercise. In this case, the bias is large enough that it reverts the sign: our correlation initially is positive, but when we segregate by age, the correlation is negative.
+    st.subheader("Supuestos y Preprocesamiento")
+    st.write("""
+    - Se eliminaron duplicados, registros incompletos o inconsistentes.             
+    - Solo se incluyeron colegios que cuentan con coordenadas geográficas válidas y completas.
+    - La distancia al colegio más cercano fue estimada en línea recta ("distancia euclidiana") según los datos disponibles.
+    - Se agruparon los colegios según 3 niveles de educación: Inicial, Primaria y Secundaria.
+    """)
 
-The data generating process is illustrated by the DAG further down bellow.
-"""
-        )
-        col1, col2 = st.columns([1, 2])
-        st.write("---")
-
-        with col1:
-                st.markdown("### Options")
-                segregated = st.checkbox(label="Segregate by age")
-                fit_line = st.checkbox(label="Show regression line", value=True)
-                st.write("---")
-                
-
-        fig = get_figure(results_data, segregated, fit_line, )
-        table = get_table(results, segregated)
-
-        with col1:
-                st.markdown("### Regression Results")
-                st.table(table)
-
-
-
-        with col2:
-                st.markdown("### Scatter Plot")
-                st.plotly_chart(fig, use_container_width=True)
-                st.write("---")
-                st.markdown("### DAG")
-                if segregated:
-                        st.image("assets/segregated.png")
-                else:
-                        st.image("assets/aggregated.png")
+# Tab 2: Mapas Estáticos
 
 with tab2:
-        st.markdown("""
-### Code
+    st.header("🗺️ Mapas Estáticos")
 
-Our code is hosted in the following GithHub repository: https://github.com/RodrigoGrijalba/python-dashboard-class
-"""
-)
+    # Convertimos a minúsculas para evitar problemas con mayúsculas/minúsculas
+df['nivel_lower'] = df['Nivel / Modalidad'].str.lower()
 
-with tab3:
-        st.markdown("""
-### References:
+# Filtros más controlados
+filtro_inicial = df['nivel_lower'].str.contains('inicial')
+filtro_primaria = df['nivel_lower'].str.contains('primaria')
+filtro_secundaria = df['nivel_lower'].str.contains('secundaria')
 
-Glymour, Madelyn, Judea Pearl, and Nicholas P. Jewell. Causal inference in statistics: A primer. John Wiley & Sons, 2016. 
-"""
-)
+# Aplicar filtros
+df_inicial = df[filtro_inicial]
+df_primaria = df[filtro_primaria]
+df_secundaria = df[filtro_secundaria]
 
+# Agrupar colegios según nivel educativo para cada distrito
+inicial_count = df_inicial.groupby(['Departamento', 'Provincia', 'Distrito']).size().reset_index(name='n_inicial')
+primaria_count = df_primaria.groupby(['Departamento', 'Provincia', 'Distrito']).size().reset_index(name='n_primaria')
+secundaria_count = df_secundaria.groupby(['Departamento', 'Provincia', 'Distrito']).size().reset_index(name='n_secundaria')
 
+# Unir la geometría de los distritos con los datos de las escuelas por nivel reemplazando NaN por 0
+gdf_inicial = gdf_distritos.merge(inicial_count, left_on=['DEPARTAMEN', 'PROVINCIA', 'DISTRITO'], right_on=['Departamento', 'Provincia', 'Distrito'], how='left').fillna({'n_inicial': 0})
+gdf_primaria = gdf_distritos.merge(primaria_count, left_on=['DEPARTAMEN', 'PROVINCIA', 'DISTRITO'], right_on=['Departamento', 'Provincia', 'Distrito'], how='left').fillna({'n_primaria': 0})
+gdf_secundaria = gdf_distritos.merge(secundaria_count, left_on=['DEPARTAMEN', 'PROVINCIA', 'DISTRITO'], right_on=['Departamento', 'Provincia', 'Distrito'], how='left').fillna({'n_secundaria': 0})
 
+# Crear el mapa para Inicial
+fig, ax = plt.subplots(1, 1, figsize=(12, 10))
+gdf_inicial.plot(column='n_inicial', cmap='Reds', ax=ax, legend=True,
+                 edgecolor='black',
+                 legend_kwds={'label': "Cantidad de Escuelas Iniciales"}, 
+                 linewidth=0.5)
+ax.set_title('Distribución de Escuelas Iniciales por Distrito en Perú')
+
+# Crear el mapa para Primaria
+fig, ax = plt.subplots(1, 1, figsize=(12, 10))
+gdf_primaria.plot(column='n_primaria', cmap='Reds', ax=ax, legend=True,
+                 edgecolor='black',
+                 legend_kwds={'label': "Cantidad de Escuelas Primarias"}, 
+                 linewidth=0.5)
+ax.set_title('Distribución de Escuelas Primarias por Distrito en Perú')
+
+# Crear el mapa para Secundaria
+fig, ax = plt.subplots(1, 1, figsize=(12, 10))
+gdf_secundaria.plot(column='n_secundaria', cmap='Reds', ax=ax, legend=True,
+                 edgecolor='black',
+                 legend_kwds={'label': "Cantidad de Escuelas Secundarias"}, 
+                 linewidth=0.5
+                 )
+
+ax.set_title(f'Distribución de colegios - Nivel {nivel.capitalize()}', fontsize=16)
+ax.axis('off')
+st.pyplot(fig)
