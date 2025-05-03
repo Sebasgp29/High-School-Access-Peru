@@ -17,7 +17,7 @@ from streamlit_folium import folium_static
 df = pd.read_excel("data/listado_iiee.xlsx")
 
 # Cargar shapefile de distritos
-gdf_distritos = gpd.read_file("data\shape_file\DISTRITOS.shp")
+gdf_distritos = gpd.read_file("data/shape_file/DISTRITOS.shp")
 
 # Configurar página de Streamlit
 st.set_page_config(page_title="Análisis Geoespacial de Colegios en Perú", layout="wide")
