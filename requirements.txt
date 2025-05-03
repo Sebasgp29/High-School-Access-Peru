@@ -9,3 +9,7 @@ nbformat
 geopandas
 openpyxl
 folium
+streamlit-folium
+shapely
+plotly
+
